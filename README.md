@@ -35,3 +35,37 @@ http://localhost:5173
 Considerações
 
 Este projeto foi desenvolvido para fins educacionais e pode ser expandido com novas funcionalidades conforme necessário.
+
+---
+
+## Arquitetura
+
+```text
+Usuário → Vercel → React + Vite → Supabase (Auth + PostgreSQL)
+```
+
+Não há backend próprio: o front fala direto com o Supabase. A segurança dos dados é feita por Row Level Security (RLS) no banco.
+
+## Como rodar localmente
+
+1. `npm install`
+2. Copie `.env.example` para `.env` e preencha com os dados de Supabase > Project Settings > API:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+3. No Supabase (SQL Editor), rode `supabase/01_schema.sql` e depois `supabase/02_seed.sql`.
+4. `npm run dev` (http://localhost:8080)
+
+## Banco de dados
+
+| Tabela | Função |
+|---|---|
+| `profiles` | Dados do usuário (ligada ao Supabase Auth) |
+| `products` | Produtos da loja |
+| `builder_parts` | Peças do montador de teclados |
+| `cart_items` | Carrinho de quem está logado |
+| `saved_builds` | Builds salvas no Dashboard |
+| `community_builds` / `community_likes` | Galeria da comunidade e curtidas |
+
+## Deploy na Vercel
+
+Cadastre `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` em Settings > Environment Variables. O `vercel.json` já redireciona todas as rotas para o `index.html` (necessário para o React Router).
