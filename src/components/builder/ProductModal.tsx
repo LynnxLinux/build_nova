@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
-import { builderProducts, type BuilderProduct, type ComponentCategory, type LayoutSize } from "@/data/builderProducts";
+import { type BuilderProduct, type ComponentCategory, type LayoutSize } from "@/data/builderProducts";
 import { isProductCompatible, type BuildSelection } from "@/utils/compatibilidade";
+import { useBuilderParts } from "@/api/catalog";
 import ProductCard from "./ProductCard";
 import ColorPicker from "./ColorPicker";
 
@@ -31,6 +32,8 @@ const ProductModal = ({
   onCaseColorChange,
   onClose,
 }: ProductModalProps) => {
+  const { data: builderProducts = [], isLoading, isError } = useBuilderParts();
+
   if (!category) return null;
 
   const products = builderProducts.filter((p) => p.category === category);
@@ -67,6 +70,8 @@ const ProductModal = ({
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {isLoading && <p className="text-sm text-muted-foreground">Carregando peças...</p>}
+              {isError && <p className="text-sm text-muted-foreground">Não foi possível carregar as peças.</p>}
               {products.map((product) => {
                 let compatible = isProductCompatible(product, selection);
 

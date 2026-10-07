@@ -1,8 +1,10 @@
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCart } from "@/context/CartContext";
+import { useAuth } from "@/context/AuthContext";
+import { useSaveBuild } from "@/api/builds";
 import { toast } from "sonner";
-import { AlertTriangle, ShoppingCart, RotateCcw } from "lucide-react";
+import { AlertTriangle, ShoppingCart, RotateCcw, Save } from "lucide-react";
 import type { BuilderProduct, ComponentCategory, LayoutSize } from "@/data/builderProducts";
 import { validateBuild, type BuildSelection, type CompatibilityError } from "@/utils/compatibilidade";
 
@@ -34,6 +36,8 @@ const BuildAlert = ({ error }: { error: CompatibilityError }) => (
 /* ── Main page ─────────────────────────────────────────────── */
 const BuilderPage = () => {
   const { addItem } = useCart();
+  const { user } = useAuth();
+  const saveBuild = useSaveBuild();
 
   // Layout state (independent)
   const [selectedLayout, setSelectedLayout] = useState<LayoutSize>("65%");
@@ -155,6 +159,37 @@ const BuilderPage = () => {
     toast.success("Build adicionada ao carrinho!");
   };
 
+  const handleSaveBuild = () => {
+    if (!user) {
+      toast.error("Entre na sua conta para salvar builds.");
+      return;
+    }
+    if (hasErrors) {
+      toast.error("Corrija os erros de compatibilidade antes de salvar.");
+      return;
+    }
+    if (selectedCount === 0) {
+      toast.error("Selecione pelo menos um componente.");
+      return;
+    }
+    const parts = [selectedSwitch, selectedKeycap, selectedPcb, selectedCase]
+      .filter(Boolean)
+      .map((p) => ({ id: p!.id, name: p!.name, category: p!.category, price: p!.price }));
+    saveBuild.mutate(
+      {
+        userId: user.id,
+        name: `Build ${selectedLayout} - ${new Date().toLocaleDateString("pt-BR")}`,
+        layout: selectedLayout,
+        parts,
+        totalPrice,
+      },
+      {
+        onSuccess: () => toast.success("Build salva! Veja no seu Dashboard."),
+        onError: () => toast.error("Não foi possível salvar a build."),
+      },
+    );
+  };
+
   const errorCategories = new Set<string>();
   errors.forEach((e) => {
     if (e.severity === "error") {
@@ -262,6 +297,17 @@ const BuilderPage = () => {
             >
               <ShoppingCart className="h-4 w-4" />
               Adicionar ao carrinho
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleSaveBuild}
+              disabled={hasErrors || selectedCount === 0 || saveBuild.isPending}
+              className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-accent text-foreground-strong font-semibold rounded-xl disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+            >
+              <Save className="h-4 w-4" />
+              {saveBuild.isPending ? "Salvando..." : "Salvar build"}
             </motion.button>
           </div>
 

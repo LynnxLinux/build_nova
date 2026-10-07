@@ -1,13 +1,15 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Star, ShoppingCart } from "lucide-react";
-import { products, categories, brands } from "@/data/products";
+import { categories, brands } from "@/data/products";
+import { useProducts } from "@/api/catalog";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 
 
 const ProductsPage = () => {
   const { addItem } = useCart();
+  const { data: products = [], isLoading, isError } = useProducts();
   const [category, setCategory] = useState("All");
   const [brand, setBrand] = useState("All");
   const [sort, setSort] = useState("popular");
@@ -20,7 +22,7 @@ const ProductsPage = () => {
     else if (sort === "price-high") result = [...result].sort((a, b) => b.price - a.price);
     else result = [...result].sort((a, b) => b.rating - a.rating);
     return result;
-  }, [category, brand, sort]);
+  }, [products, category, brand, sort]);
 
   return (
     <div className="container mx-auto px-4 py-12">
@@ -74,6 +76,18 @@ const ProductsPage = () => {
           <option value="price-high">Preço: maior para menor</option>
         </select>
       </div>
+
+      {isLoading && (
+        <div className="text-center py-20 text-foreground">
+          <p className="text-lg">Carregando produtos...</p>
+        </div>
+      )}
+
+      {isError && (
+        <div className="text-center py-20 text-foreground">
+          <p className="text-lg">Não foi possível carregar os produtos. Tente novamente em instantes.</p>
+        </div>
+      )}
 
       {/* Grid de produtos */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -146,7 +160,7 @@ const ProductsPage = () => {
         ))}
       </div>
 
-      {filtered.length === 0 && (
+      {!isLoading && !isError && filtered.length === 0 && (
         <div className="text-center py-20 text-foreground">
           <p className="text-lg">
             Nenhum produto encontrado com os filtros atuais.

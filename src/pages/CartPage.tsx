@@ -37,11 +37,15 @@ const CartPage = () => {
               className="bg-card rounded-lg shadow-card p-4 flex items-center gap-4"
             >
               <div className="h-16 w-16 bg-accent rounded-md flex items-center justify-center text-3xl shrink-0 overflow-hidden">
-                <img
-                  src={item.image}
-                  alt={item.name}
-                  className="h-full w-full object-cover"
-                />
+                {/^(\/|https?:|data:)/.test(item.image) ? (
+                  <img
+                    src={item.image}
+                    alt={item.name}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span>{item.image}</span>
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-sm truncate">{item.name}</h3>
