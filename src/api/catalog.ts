@@ -24,6 +24,18 @@ interface ProductRow {
   image_size: string | null;
 }
 
+const rowToProduct = (r: ProductRow): Product => ({
+  id: r.id,
+  name: r.name,
+  description: r.description,
+  category: r.category,
+  brand: r.brand,
+  price: Number(r.price),
+  rating: Number(r.rating),
+  image: productImages[r.image_key] ?? "",
+  imageSize: r.image_size ?? undefined,
+});
+
 export async function fetchProducts(): Promise<Product[]> {
   const { data, error } = await supabase
     .from("products")
@@ -31,19 +43,26 @@ export async function fetchProducts(): Promise<Product[]> {
     .eq("active", true)
     .order("id");
   if (error) throw error;
-
-  return ((data ?? []) as ProductRow[]).map((r) => ({
-    id: r.id,
-    name: r.name,
-    description: r.description,
-    category: r.category,
-    brand: r.brand,
-    price: Number(r.price),
-    rating: Number(r.rating),
-    image: productImages[r.image_key] ?? "",
-    imageSize: r.image_size ?? undefined,
-  }));
+  return ((data ?? []) as ProductRow[]).map(rowToProduct);
 }
+
+/** Produtos mais vendidos (coluna sales_count) */
+export const useBestSellers = (limit = 4) =>
+  useQuery({
+    queryKey: ["products", "best_sellers", limit],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Product[]> => {
+      const { data, error } = await supabase
+        .from("products")
+        .select("*")
+        .eq("active", true)
+        .order("sales_count", { ascending: false })
+        .order("id")
+        .limit(limit);
+      if (error) throw error;
+      return ((data ?? []) as ProductRow[]).map(rowToProduct);
+    },
+  });
 
 export const useProducts = () =>
   useQuery({ queryKey: ["products"], queryFn: fetchProducts, staleTime: 5 * 60 * 1000 });

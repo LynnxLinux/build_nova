@@ -1,29 +1,15 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { ArrowRight, Zap, Shield, Palette, Users } from "lucide-react";
+import { ArrowRight, Zap, Shield, Palette, Users, ShoppingCart } from "lucide-react";
 import heroImage from "@/assets/hero-keyboard.jpg";
-import midnightPurple from "@/assets/community-builds/midnight-purple.png"
-import brancoArtico from "@/assets/community-builds/branco-artico.png"
-import neonDreams from "@/assets/community-builds/neon-dreams.png"
-import gateronOil from "@/assets/produtos/gateron-oil.png"
-import gmkLaser from "@/assets/produtos/gmkLaser.png"
-import caboCoiled from "@/assets/produtos/cabo-coiled.png"
-import tofu65 from "@/assets/produtos/Tofu65.png"
+import { useBestSellers } from "@/api/catalog";
+import { useCommunityBuilds } from "@/api/community";
+import { usePurchase } from "@/hooks/usePurchase";
+import ProductCard from "@/components/products/ProductCard";
+
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 const spring = { type: "spring" as const, stiffness: 300, damping: 25, mass: 0.5 };
-
-const featuredBuilds = [
-  { title: "Midnight Purple", layout: "75%", price: "R$299,99", image: midnightPurple },
-  { title: "Branco Ártico", layout: "TKL", price: "R$299,99", image: brancoArtico },
-  { title: "Neon Dreams", layout: "Full Size", price: "R$349,99", image: neonDreams },
-];
-
-const popularProducts = [
-  { name: "Gateron Oil King", price: "R$32,99", category: "Switches", image: gateronOil, imageSize: "h-28" },
-  { name: "GMK Laser Keycaps", price: "R$129,99", category: "Keycaps", image: gmkLaser, imageSize: "h-26"},
-  { name: "Coiled USB-C Cable", price: "R$49,99", category: "Cabos", image: caboCoiled, imageSize: "h-24" },
-  { name: "Tofu65 Case", price: "R$119,99", category: "Cases", image:tofu65, imageSize: "h-24" },
-];
 
 const reasons = [
   { icon: Palette, title: "Personalização completa", desc: "Escolha cada componente, do layout às keycaps." },
@@ -32,7 +18,14 @@ const reasons = [
   { icon: Users, title: "Comunidade ativa", desc: "Compartilhe setups e descubra novas ideias." },
 ];
 
-const HomePage = () => (
+const HomePage = () => {
+  const { data: builds = [] } = useCommunityBuilds();
+  const { data: bestSellers = [] } = useBestSellers(4);
+  const { addBuild, buyBuild } = usePurchase();
+
+  const featured = (builds.filter((b) => b.isFeatured).length > 0 ? builds.filter((b) => b.isFeatured) : builds).slice(0, 3);
+
+  return (
   <div>
     <section className="relative overflow-hidden">
       <div className="absolute inset-0">
@@ -75,70 +68,76 @@ const HomePage = () => (
       </div>
     </section>
 
-    <section className="container mx-auto px-4 py-24">
-      <h2 className="text-3xl font-bold tracking-tight mb-2">Teclados em destaque</h2>
-      <p className="text-foreground mb-10">Modelos montados por nossa comunidade.</p>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {featuredBuilds.map((build, i) => (
-          <motion.div
-            key={build.title}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: i * 0.1, duration: 0.4 }}
-            whileHover={{ y: -4 }}
-            className="bg-card rounded-lg shadow-card overflow-hidden group cursor-pointer"
-          >
-            <div className="h-48 bg-accent flex items-center justify-center text-7xl">
-              <img
-                src={build.image}
-                alt={build.title}
-                className="h=40 object-contain"
-                />
-            </div>
-            <div className="p-5">
-              <h3 className="font-semibold text-lg mb-1">{build.title}</h3>
-              <div className="flex justify-between text-sm text-foreground">
-                <span>{build.layout}</span>
-                <span className="text-primary font-semibold tabular-nums">{build.price}</span>
+    {featured.length > 0 && (
+      <section className="container mx-auto px-4 py-24">
+        <h2 className="text-3xl font-bold tracking-tight mb-2">Teclados em destaque</h2>
+        <p className="text-foreground mb-10">Modelos montados por nossa comunidade.</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {featured.map((build, i) => (
+            <motion.div
+              key={build.id}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.1, duration: 0.4 }}
+              whileHover={{ y: -4 }}
+              className="bg-card rounded-lg shadow-card overflow-hidden flex flex-col"
+            >
+              <Link to={`/community/${build.id}`} aria-label={`Ver build ${build.title}`}>
+                <div className="h-48 bg-accent flex items-center justify-center overflow-hidden">
+                  <img src={build.image} alt={build.title} loading="lazy" className="h-full w-full object-contain" />
+                </div>
+              </Link>
+              <div className="p-5 flex flex-col flex-1">
+                <h3 className="font-semibold text-lg mb-1">{build.title}</h3>
+                <div className="flex justify-between text-sm text-foreground mb-4">
+                  <span>{build.layout}</span>
+                  <span className="text-primary font-semibold tabular-nums">{brl(build.price)}</span>
+                </div>
+                <div className="mt-auto space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => buyBuild(build)}
+                    disabled={!build.complete}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Zap className="h-3 w-3" /> Comprar agora
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => addBuild(build)}
+                      disabled={!build.complete}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-accent text-foreground-strong text-xs font-semibold rounded-md border border-border hover:bg-accent/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ShoppingCart className="h-3 w-3" /> Adicionar
+                    </button>
+                    <Link
+                      to={`/community/${build.id}`}
+                      className="flex-1 text-center px-3 py-2 bg-accent text-foreground-strong text-xs font-semibold rounded-md border border-border hover:bg-accent/80 transition-colors"
+                    >
+                      Ver build
+                    </Link>
+                  </div>
+                </div>
               </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-    </section>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+    )}
 
-    <section className="container mx-auto px-4 py-24">
-      <h2 className="text-3xl font-bold tracking-tight mb-2">Produtos mais vendidos</h2>
-      <p className="text-foreground mb-10">Peças mais populares entre nossos clientes.</p>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {popularProducts.map((p, i) => (
-          <motion.div
-            key={p.name}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: i * 0.08, duration: 0.4 }}
-            className="bg-card rounded-lg shadow-card p-5 hover:bg-accent/50 transition-colors cursor-pointer"
-          >
-            <div className="flex items-center justify-center h-20 mb-3">
-              {p.image ? (
-                <img
-                  src={p.image}
-                  alt={p.name}
-                  className={`${p.imageSize || "h-16"} object-contain`}
-              />
-            ) : (
-              <div className="text-4xl">{p.image}</div>
-           )}
-              </div>
-            <h3 className="font-semibold text-sm mb-1">{p.name}</h3>
-            <p className="text-xs text-muted-foreground mb-1">{p.category}</p>
-            <p className="text-primary font-semibold text-sm tabular-nums">{p.price}</p>
-          </motion.div>
-        ))}
-      </div>
-    </section>
+    {bestSellers.length > 0 && (
+      <section className="container mx-auto px-4 py-24">
+        <h2 className="text-3xl font-bold tracking-tight mb-2">Produtos mais vendidos</h2>
+        <p className="text-foreground mb-10">Peças mais populares entre nossos clientes.</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {bestSellers.map((p, i) => (
+            <ProductCard key={p.id} product={p} index={i} />
+          ))}
+        </div>
+      </section>
+    )}
 
     <section className="container mx-auto px-4 py-24">
       <h2 className="text-3xl font-bold tracking-tight text-center mb-2">Por que escolher o Qwerty?</h2>
@@ -177,6 +176,7 @@ const HomePage = () => (
       </div>
     </section>
   </div>
-);
+  );
+};
 
 export default HomePage;

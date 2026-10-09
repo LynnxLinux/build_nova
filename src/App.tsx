@@ -13,6 +13,9 @@ import CartPage from "./pages/CartPage";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import CommunityPage from "./pages/CommunityPage";
+import CommunityBuildDetailPage from "./pages/CommunityBuildDetailPage";
+import CheckoutPage from "./pages/CheckoutPage";
+import OrderPage from "./pages/OrderPage";
 import AboutPage from "./pages/AboutPage";
 import NotFound from "./pages/NotFound";
 
@@ -36,6 +39,9 @@ const App = () => (
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/dashboard" element={<DashboardPage />} />
                   <Route path="/community" element={<CommunityPage />} />
+                  <Route path="/community/:id" element={<CommunityBuildDetailPage />} />
+                  <Route path="/checkout" element={<CheckoutPage />} />
+                  <Route path="/pedido/:id" element={<OrderPage />} />
                   <Route path="/about" element={<AboutPage />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>

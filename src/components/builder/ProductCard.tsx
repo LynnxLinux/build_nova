@@ -24,8 +24,6 @@ const ProductCard = ({ product, selected, compatible, onSelect }: ProductCardPro
           : "bg-card/40 border border-border opacity-40 cursor-not-allowed"
     }`}
   >
-    <span className="text-3xl shrink-0">{product.image}</span>
-
     <div className="flex-1 min-w-0">
       <p className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground-strong))" }}>
         {product.name}
@@ -41,7 +39,7 @@ const ProductCard = ({ product, selected, compatible, onSelect }: ProductCardPro
 
     <div className="flex flex-col items-end gap-1 shrink-0">
       <span className="text-sm font-bold tabular-nums" style={{ color: "hsl(var(--foreground-strong))" }}>
-        ${product.price.toFixed(2)}
+        {product.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
       </span>
       {compatible ? (
         selected ? (

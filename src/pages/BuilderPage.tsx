@@ -1,14 +1,19 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, lazy, Suspense } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { useSaveBuild } from "@/api/builds";
+import { useCommunityBuilds, layoutOfBuild } from "@/api/community";
+import { supportsWebGL } from "@/utils/webgl";
 import { toast } from "sonner";
 import { AlertTriangle, ShoppingCart, RotateCcw, Save } from "lucide-react";
 import type { BuilderProduct, ComponentCategory, LayoutSize } from "@/data/builderProducts";
 import { validateBuild, type BuildSelection, type CompatibilityError } from "@/utils/compatibilidade";
 
 import KeyboardPreview from "@/components/builder/KeyboardPreview";
+
+const Keyboard3D = lazy(() => import("@/components/builder/Keyboard3D"));
 import LayoutSelector from "@/components/builder/LayoutSelector";
 import CategoryCard from "@/components/builder/CategoryCard";
 import ProductModal from "@/components/builder/ProductModal";
@@ -38,6 +43,15 @@ const BuilderPage = () => {
   const { addItem } = useCart();
   const { user } = useAuth();
   const saveBuild = useSaveBuild();
+
+  // Visualização: 3D (padrão) ou 2D (fallback se o navegador não tiver WebGL)
+  const [view, setView] = useState<"3d" | "2d">(supportsWebGL() ? "3d" : "2d");
+
+  // "Montar igual": /builder?communityBuild=<id>
+  const [searchParams, setSearchParams] = useSearchParams();
+  const communityBuildId = searchParams.get("communityBuild");
+  const { data: communityBuilds = [], isLoading: loadingCommunity } = useCommunityBuilds();
+  const loadedBuildRef = useRef<string | null>(null);
 
   // Layout state (independent)
   const [selectedLayout, setSelectedLayout] = useState<LayoutSize>("65%");
@@ -140,6 +154,29 @@ const BuilderPage = () => {
     setSelectedCaseColorId(null);
   };
 
+  useEffect(() => {
+    if (!communityBuildId || loadedBuildRef.current === communityBuildId) return;
+    if (loadingCommunity) return;
+    loadedBuildRef.current = communityBuildId;
+
+    const build = communityBuilds.find((b) => b.id === communityBuildId);
+    if (!build) {
+      toast.error("Build da comunidade não encontrada.");
+      setSearchParams({}, { replace: true });
+      return;
+    }
+    const pick = (cat: ComponentCategory) => build.parts.find((p) => p.category === cat) ?? null;
+    const cs = pick("case");
+    setSelectedLayout(layoutOfBuild(build));
+    setSelectedSwitch(pick("switch"));
+    setSelectedKeycap(pick("keycap"));
+    setSelectedPcb(pick("pcb"));
+    setSelectedCase(cs);
+    setSelectedCaseColorId(cs?.colors?.[0]?.id ?? null);
+    toast.success(`Build "${build.title}" carregada. Ajuste o que quiser!`);
+    setSearchParams({}, { replace: true });
+  }, [communityBuildId, communityBuilds, loadingCommunity, setSearchParams]);
+
   const handleAddToCart = () => {
     if (hasErrors) {
       toast.error("Corrija os erros de compatibilidade antes de adicionar ao carrinho.");
@@ -155,6 +192,8 @@ const BuilderPage = () => {
       name: `Custom Build (${selectedLayout}): ${parts.map((p) => p.name).join(" + ")}`,
       price: totalPrice,
       image: "⌨️",
+      category: "Build",
+      parts: parts.map((p) => p.id),
     });
     toast.success("Build adicionada ao carrinho!");
   };
@@ -216,14 +255,44 @@ const BuilderPage = () => {
           transition={{ delay: 0.1 }}
           className="glass rounded-2xl p-8 flex flex-col items-center justify-center min-h-[420px]"
         >
-          <KeyboardPreview
-            selectedLayout={selectedLayout}
-            selectedCase={selectedCase}
-            selectedKeycap={selectedKeycap}
-            selectedSwitch={selectedSwitch}
-            selectedPcb={selectedPcb}
-            caseColor={caseColorHex}
-          />
+          <div className="self-end mb-4 flex items-center gap-1 p-1 rounded-lg bg-accent border border-border">
+            {(["3d", "2d"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                disabled={v === "3d" && !supportsWebGL()}
+                className={`px-3 py-1 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors disabled:opacity-40 ${
+                  view === v ? "bg-primary text-primary-foreground" : "text-foreground hover:text-foreground-strong"
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+
+          {view === "3d" ? (
+            <Suspense fallback={<p className="text-foreground py-24">Carregando 3D...</p>}>
+              <Keyboard3D
+                layout={selectedLayout}
+                keycap={selectedKeycap}
+                caseItem={selectedCase}
+                switchItem={selectedSwitch}
+                pcb={selectedPcb}
+                caseColor={selectedCase ? caseColorHex : null}
+                onFail={() => setView("2d")}
+              />
+            </Suspense>
+          ) : (
+            <KeyboardPreview
+              selectedLayout={selectedLayout}
+              selectedCase={selectedCase}
+              selectedKeycap={selectedKeycap}
+              selectedSwitch={selectedSwitch}
+              selectedPcb={selectedPcb}
+              caseColor={caseColorHex}
+            />
+          )}
         </motion.div>
 
         {/* ── Right sidebar ────────────────────────────────── */}
@@ -275,7 +344,7 @@ const BuilderPage = () => {
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Total estimado</p>
                 <p className="text-2xl font-bold tabular-nums" style={{ color: "hsl(var(--foreground-strong))" }}>
-                  ${totalPrice.toFixed(2)}
+                  {totalPrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
                 </p>
               </div>
               {selectedCount > 0 && (

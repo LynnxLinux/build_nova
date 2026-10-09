@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 import { productImages } from "@/data/productImages";
+import { communityImages } from "@/data/communityImages";
 
 export interface CartItem {
   id: string;
@@ -11,6 +12,8 @@ export interface CartItem {
   quantity: number;
   image: string;
   category?: string;
+  /** ids das peças (builder_parts) das builds personalizadas; o servidor usa para conferir o preço */
+  parts?: string[];
 }
 
 interface CartContextType {
@@ -61,12 +64,19 @@ interface CartRow {
   quantity: number;
   image: string;
   category: string | null;
+  parts: string[] | null;
 }
 
 // A URL das imagens muda a cada build (hash do Vite), então no banco guardamos a CHAVE da imagem.
-const imageToDb = (image: string): string =>
-  Object.entries(productImages).find(([, url]) => url === image)?.[0] ?? image;
-const imageFromDb = (value: string): string => productImages[value] ?? value;
+const imageMaps = [productImages, communityImages];
+const imageToDb = (image: string): string => {
+  for (const map of imageMaps) {
+    const key = Object.entries(map).find(([, url]) => url === image)?.[0];
+    if (key) return key;
+  }
+  return image;
+};
+const imageFromDb = (value: string): string => productImages[value] ?? communityImages[value] ?? value;
 
 const rowToItem = (r: CartRow): CartItem => ({
   id: r.item_id,
@@ -75,6 +85,7 @@ const rowToItem = (r: CartRow): CartItem => ({
   quantity: r.quantity,
   image: imageFromDb(r.image),
   category: r.category ?? undefined,
+  parts: Array.isArray(r.parts) ? r.parts : undefined,
 });
 
 const itemToRow = (userId: string, i: CartItem) => ({
@@ -85,6 +96,7 @@ const itemToRow = (userId: string, i: CartItem) => ({
   quantity: i.quantity,
   image: imageToDb(i.image),
   category: i.category ?? null,
+  parts: i.parts ?? null,
 });
 
 const syncError = () => toast.error("Não foi possível salvar o carrinho. Verifique sua conexão.");

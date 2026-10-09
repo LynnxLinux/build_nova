@@ -1,7 +1,10 @@
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { communityImages } from "@/data/communityImages";
 import type { CommunityBuild } from "@/data/community";
+import type { BuilderProduct, LayoutSize } from "@/data/builderProducts";
+import { useBuilderParts } from "@/api/catalog";
 
 interface CommunityRow {
   id: string;
@@ -13,9 +16,19 @@ interface CommunityRow {
   keycaps: string;
   image_key: string;
   likes: number;
+  is_featured: boolean | null;
+  parts: string[] | null;
 }
 
-export const useCommunityBuilds = () =>
+/** Build da comunidade já com as peças do catálogo e o preço somado */
+export interface CommunityBuildFull extends CommunityBuild {
+  parts: BuilderProduct[];
+  price: number;
+  /** true quando todas as peças da build existem no catálogo */
+  complete: boolean;
+}
+
+const useRawCommunityBuilds = () =>
   useQuery({
     queryKey: ["community_builds"],
     queryFn: async (): Promise<CommunityBuild[]> => {
@@ -35,9 +48,48 @@ export const useCommunityBuilds = () =>
         switches: r.switches,
         keycaps: r.keycaps,
         image: communityImages[r.image_key] ?? "",
+        partIds: Array.isArray(r.parts) ? r.parts : [],
+        isFeatured: !!r.is_featured,
       }));
     },
   });
+
+/** Galeria com as peças resolvidas (junta community_builds + builder_parts) */
+export function useCommunityBuilds() {
+  const builds = useRawCommunityBuilds();
+  const parts = useBuilderParts();
+
+  const data = useMemo<CommunityBuildFull[] | undefined>(() => {
+    if (!builds.data || !parts.data) return undefined;
+    const byId = new Map(parts.data.map((p) => [p.id, p]));
+    return builds.data.map((b) => {
+      const resolved = b.partIds.map((id) => byId.get(id)).filter((p): p is BuilderProduct => !!p);
+      return {
+        ...b,
+        parts: resolved,
+        price: resolved.reduce((sum, p) => sum + p.price, 0),
+        complete: resolved.length > 0 && resolved.length === b.partIds.length,
+      };
+    });
+  }, [builds.data, parts.data]);
+
+  return {
+    data,
+    isLoading: builds.isLoading || parts.isLoading,
+    isError: builds.isError || parts.isError,
+  };
+}
+
+/** Layout usado pelo montador, a partir das peças (ou do texto "Full Size") */
+export function layoutOfBuild(build: CommunityBuildFull): LayoutSize {
+  const fromParts = build.parts.find((p) => p.category === "pcb")?.layout ?? build.parts.find((p) => p.category === "case")?.layout;
+  if (fromParts) return fromParts;
+  const l = build.layout.trim().toLowerCase();
+  if (l.startsWith("full")) return "Full";
+  if (l === "tkl") return "TKL";
+  if (l === "60%" || l === "65%" || l === "75%") return l as LayoutSize;
+  return "65%";
+}
 
 /** IDs das builds que o usuário logado já curtiu */
 export const useMyLikes = (userId: string | undefined) =>

@@ -79,20 +79,21 @@ const CartPage = () => {
             </div>
             <div className="flex justify-between text-foreground">
               <span>Frete</span>
-              <span>Grátis</span>
+              <span>Calculado no checkout</span>
             </div>
             <div className="border-t border-border pt-2 flex justify-between text-foreground-strong font-semibold">
               <span>Total</span>
               <span className="tabular-nums">R${totalPrice.toFixed(2)}</span>
             </div>
           </div>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-md shadow-button"
-          >
-            Finalizar compra
-          </motion.button>
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+            <Link
+              to="/checkout"
+              className="block w-full text-center py-3 bg-primary text-primary-foreground font-semibold rounded-md shadow-button"
+            >
+              Finalizar compra
+            </Link>
+          </motion.div>
         </div>
       </div>
     </div>

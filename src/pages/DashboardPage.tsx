@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
-import { Navigate } from "react-router-dom";
-import { User, ShoppingBag, Keyboard, Settings, Trash2 } from "lucide-react";
+import { Link, Navigate } from "react-router-dom";
+import { User, ShoppingBag, Keyboard, Settings, Trash2, Package } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useSavedBuilds, useDeleteBuild } from "@/api/builds";
+import { useOrders, orderStatusLabel } from "@/api/checkout";
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -15,6 +16,7 @@ const DashboardPage = () => {
   const { items, totalPrice } = useCart();
   const { data: savedBuilds = [], isLoading: loadingBuilds } = useSavedBuilds(user?.id);
   const deleteBuild = useDeleteBuild(user?.id);
+  const { data: orders = [] } = useOrders(user?.id);
 
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -146,6 +148,34 @@ const DashboardPage = () => {
             </motion.button>
           </div>
         </div>
+      </div>
+
+      {/* Meus pedidos */}
+      <div className="bg-card rounded-lg shadow-card p-6 mt-8">
+        <h3 className="font-semibold text-lg mb-4 flex items-center gap-2">
+          <Package className="h-5 w-5 text-primary" /> Meus pedidos
+        </h3>
+        {orders.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Você ainda não fez nenhum pedido.</p>
+        ) : (
+          <div className="space-y-3">
+            {orders.map((o) => (
+              <Link
+                key={o.id}
+                to={`/pedido/${o.id}`}
+                className="flex items-center justify-between gap-3 p-3 bg-accent rounded-md hover:bg-accent/80 transition-colors"
+              >
+                <div>
+                  <p className="font-medium text-sm">Pedido {o.id.slice(0, 8).toUpperCase()}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(o.createdAt).toLocaleDateString("pt-BR")} · {orderStatusLabel[o.status]}
+                  </p>
+                </div>
+                <span className="text-primary font-semibold text-sm tabular-nums">{brl(o.total)}</span>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

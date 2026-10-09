@@ -11,4 +11,7 @@ export interface CommunityBuild {
   switches: string;
   keycaps: string;
   image: string;
+  /** ids das peças (tabela builder_parts) que formam a build */
+  partIds: string[];
+  isFeatured: boolean;
 }

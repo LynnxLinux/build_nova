@@ -7,6 +7,7 @@ const layouts: { value: LayoutSize; label: string; keys: number }[] = [
   { value: "65%", label: "65%", keys: 68 },
   { value: "75%", label: "75%", keys: 84 },
   { value: "TKL", label: "TKL", keys: 87 },
+  { value: "Full", label: "100%", keys: 104 },
 ];
 
 interface LayoutSelectorProps {
@@ -20,7 +21,7 @@ const LayoutSelector = ({ selected, onChange }: LayoutSelectorProps) => (
       <Keyboard className="h-4 w-4 text-primary" />
       <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Layout</span>
     </div>
-    <div className="grid grid-cols-4 gap-2">
+    <div className="grid grid-cols-5 gap-2">
       {layouts.map((l) => {
         const active = selected === l.value;
         return (
