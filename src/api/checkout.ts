@@ -44,6 +44,7 @@ export interface Order {
   address: Record<string, string>;
   createdAt: string;
   paidAt: string | null;
+  paymentId: string | null;
   items: OrderItem[];
 }
 
@@ -193,7 +194,10 @@ async function callPayments(path: string, init?: RequestInit) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token ?? ""}` },
   });
   const json = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((json as { error?: string }).error || "Erro ao falar com o servidor de pagamento.");
+  if (!r.ok) {
+    const { error, detail } = json as { error?: string; detail?: string };
+    throw new Error((error || "Erro ao falar com o servidor de pagamento.") + (detail ? ` [${detail}]` : ""));
+  }
   return json as Record<string, unknown>;
 }
 
@@ -221,6 +225,7 @@ interface OrderRow {
   address: Record<string, string>;
   created_at: string;
   paid_at: string | null;
+  payment_id: string | null;
   order_items?: { id: string; name: string; unit_price: number; quantity: number }[];
 }
 
@@ -235,6 +240,7 @@ const rowToOrder = (r: OrderRow): Order => ({
   address: r.address,
   createdAt: r.created_at,
   paidAt: r.paid_at,
+  paymentId: r.payment_id,
   items: (r.order_items ?? []).map((i) => ({
     id: i.id,
     name: i.name,

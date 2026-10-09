@@ -183,6 +183,11 @@ const OrderPage = () => {
               </button>
             </>
           )}
+          {paid && (
+            <Link to={`/pedido/${order.id}/nota`} className="px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-md shadow-button">
+              Ver nota de compra
+            </Link>
+          )}
           <Link to="/dashboard" className="px-4 py-2.5 bg-accent text-foreground-strong text-sm font-semibold rounded-md border border-border">
             Meus pedidos
           </Link>
