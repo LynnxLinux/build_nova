@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useSavedBuilds, useDeleteBuild } from "@/api/builds";
 import { useOrders, orderStatusLabel } from "@/api/checkout";
+import { useIsAdmin } from "@/api/admin";
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -17,6 +18,7 @@ const DashboardPage = () => {
   const { data: savedBuilds = [], isLoading: loadingBuilds } = useSavedBuilds(user?.id);
   const deleteBuild = useDeleteBuild(user?.id);
   const { data: orders = [] } = useOrders(user?.id);
+  const { data: isAdmin } = useIsAdmin(user?.id);
 
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -48,7 +50,14 @@ const DashboardPage = () => {
     <div className="container mx-auto px-4 py-12">
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-4xl font-bold tracking-tight mb-2">Painel</h1>
-        <p className="text-foreground mb-8">Bem-vindo de volta, {user?.name}.</p>
+        <p className="text-foreground mb-4">Bem-vindo de volta, {user?.name}.</p>
+        {isAdmin ? (
+          <Link to="/admin" className="inline-flex mb-8 px-4 py-2 bg-primary text-primary-foreground text-sm font-semibold rounded-md shadow-button">
+            Abrir painel do administrador
+          </Link>
+        ) : (
+          <div className="mb-4" />
+        )}
       </motion.div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">

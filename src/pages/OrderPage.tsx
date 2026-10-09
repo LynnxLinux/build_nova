@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { CheckCircle2, Clock, RefreshCw, XCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
-import { checkPaymentStatus, orderStatusLabel, startPayment, useOrder } from "@/api/checkout";
+import { checkPaymentStatus, isPaidStatus, orderStatusLabel, startPayment, useOrder } from "@/api/checkout";
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -52,14 +52,14 @@ const OrderPage = () => {
 
   // Pagamento confirmado: esvazia o carrinho uma única vez (quando voltou do Mercado Pago)
   useEffect(() => {
-    if (order?.status !== "paid" || !id) return;
+    if (!order || !isPaidStatus(order.status) || !id) return;
     const cameFromPayment = searchParams.has("payment_id") || searchParams.has("collection_id");
     const key = `qwerty-cart-cleared-${id}`;
     if (cameFromPayment && !sessionStorage.getItem(key)) {
       sessionStorage.setItem(key, "1");
       clearCart();
     }
-  }, [order?.status, id, searchParams, clearCart]);
+  }, [order, id, searchParams, clearCart]);
 
   const handleRetry = async () => {
     if (!id) return;
@@ -93,7 +93,7 @@ const OrderPage = () => {
     );
   }
 
-  const paid = order.status === "paid";
+  const paid = isPaidStatus(order.status);
   const rejected = order.status === "pending" && paymentStatus === "rejected";
   const addr = order.address;
 
@@ -108,7 +108,7 @@ const OrderPage = () => {
           <Clock className="h-14 w-14 text-primary mx-auto mb-3" />
         )}
         <h1 className="text-3xl font-bold tracking-tight mb-1">
-          {paid ? "Pagamento confirmado!" : rejected ? "Pagamento recusado" : orderStatusLabel[order.status]}
+          {order.status === "shipped" ? "Pedido enviado!" : order.status === "delivered" ? "Pedido entregue!" : paid ? "Pagamento confirmado!" : rejected ? "Pagamento recusado" : orderStatusLabel[order.status]}
         </h1>
         <p className="text-foreground">
           {paid

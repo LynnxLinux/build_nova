@@ -24,7 +24,10 @@ export interface ShippingOption {
   days: number;
 }
 
-export type OrderStatus = "pending" | "paid" | "failed" | "cancelled";
+export type OrderStatus = "pending" | "paid" | "shipped" | "delivered" | "failed" | "cancelled";
+
+/** pedido já pago (inclui enviado e entregue) */
+export const isPaidStatus = (s: OrderStatus) => s === "paid" || s === "shipped" || s === "delivered";
 
 export interface OrderItem {
   id: string;
@@ -214,7 +217,7 @@ export async function checkPaymentStatus(orderId: string): Promise<{ status: Ord
 }
 
 /* ── Leitura de pedidos ────────────────────────────────────── */
-interface OrderRow {
+export interface OrderRow {
   id: string;
   status: OrderStatus;
   subtotal: number;
@@ -229,7 +232,7 @@ interface OrderRow {
   order_items?: { id: string; name: string; unit_price: number; quantity: number }[];
 }
 
-const rowToOrder = (r: OrderRow): Order => ({
+export const rowToOrder = (r: OrderRow): Order => ({
   id: r.id,
   status: r.status,
   subtotal: Number(r.subtotal),
@@ -282,6 +285,8 @@ export const useOrders = (userId: string | undefined) =>
 export const orderStatusLabel: Record<OrderStatus, string> = {
   pending: "Aguardando pagamento",
   paid: "Pago",
+  shipped: "Enviado",
+  delivered: "Entregue",
   failed: "Pagamento recusado",
   cancelled: "Cancelado",
 };

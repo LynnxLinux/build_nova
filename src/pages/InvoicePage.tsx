@@ -1,7 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Printer } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { useOrder } from "@/api/checkout";
+import { isPaidStatus, useOrder } from "@/api/checkout";
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dateTime = (iso: string) =>
@@ -49,7 +49,7 @@ const InvoicePage = () => {
       </div>
     );
   }
-  if (order.status !== "paid") {
+  if (!isPaidStatus(order.status)) {
     return (
       <div className="container mx-auto px-4 py-32 text-center">
         <p className="text-foreground mb-6">A nota de compra fica disponível depois que o pagamento for confirmado.</p>

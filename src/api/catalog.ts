@@ -22,6 +22,7 @@ interface ProductRow {
   rating: number;
   image_key: string;
   image_size: string | null;
+  stock: number | null;
 }
 
 const rowToProduct = (r: ProductRow): Product => ({
@@ -34,6 +35,7 @@ const rowToProduct = (r: ProductRow): Product => ({
   rating: Number(r.rating),
   image: productImages[r.image_key] ?? "",
   imageSize: r.image_size ?? undefined,
+  stock: r.stock ?? undefined,
 });
 
 export async function fetchProducts(): Promise<Product[]> {

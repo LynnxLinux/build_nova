@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Star, ShoppingCart } from "lucide-react";
 import { categories, brands } from "@/data/products";
@@ -101,13 +102,13 @@ const ProductsPage = () => {
             whileHover={{ y: -4 }}
             className="bg-card rounded-lg shadow-card overflow-hidden group"
           >
-            <div className="h-48 bg-accent flex items-center justify-center text-7xl">
+            <Link to={`/products/${product.id}`} className="h-48 bg-accent flex items-center justify-center text-7xl" aria-label={`Ver ${product.name}`}>
               <img
                 src={product.image}
                 alt={product.name}
                 className={`${product.imageSize || "h-24 w-24"} object-contain transition-transform duration-300 group-hover:scale-105`}
                 />
-            </div>  
+            </Link>
 
             <div className="p-4">
               <p className="text-xs text-muted-foreground uppercase tracking-widest mb-1">
@@ -117,7 +118,9 @@ const ProductsPage = () => {
                   }[product.category] || product.category}
               </p>
 
-              <h3 className="font-semibold text-sm mb-1">{product.name}</h3>
+              <Link to={`/products/${product.id}`}>
+                <h3 className="font-semibold text-sm mb-1 hover:text-primary transition-colors">{product.name}</h3>
+              </Link>
 
               <p className="text-xs text-foreground mb-3 line-clamp-2">
                 {product.description}
