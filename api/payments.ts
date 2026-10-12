@@ -5,6 +5,8 @@
  *   POST ?action=create   body {orderId}   -> cria a preferência e devolve a URL de pagamento
  *   GET  ?action=status&orderId=...        -> consulta o pagamento no Mercado Pago e atualiza o pedido
  *   POST ?action=webhook                   -> aviso automático do Mercado Pago
+ *   GET  ?action=config                    -> informa se o Pix de demonstração está ligado
+ *   POST ?action=pix_confirm body {orderId} -> (só no modo demonstração) simula a confirmação do Pix
  *   POST ?action=pix_create  body {orderId, cpf} -> gera um Pix (QR Code + copia e cola)
  *   GET  ?action=pix_info&orderId=...      -> devolve o Pix já gerado do pedido
  *
@@ -13,6 +15,7 @@
  *   SUPABASE_SERVICE_ROLE_KEY  chave service_role do Supabase (NUNCA com prefixo VITE_)
  *   VITE_SUPABASE_URL          (já existe)
  *   MP_USE_SANDBOX             opcional: NÃO use (causa erro no checkout de teste)
+ *   PIX_DEMO                  "true" liga o Pix de DEMONSTRAÇÃO (simulado, sem dinheiro). NUNCA use em produção real
  *   MP_PIX_TEST                "true" só em TESTE: envia nome APRO para o Pix ser aprovado sozinho
  *   MP_PIX_ACCESS_TOKEN        opcional: token só para o Pix (se não existir, usa o MP_ACCESS_TOKEN)
  *   SITE_URL                   opcional: https://seu-site.vercel.app (senão usa o do navegador)
@@ -37,6 +40,7 @@ const MP_TOKEN = process.env.MP_ACCESS_TOKEN || "";
 // Pix pode usar outro token (ex.: credenciais de teste); se não existir, usa o mesmo do cartão
 const MP_PIX_TOKEN = process.env.MP_PIX_ACCESS_TOKEN || MP_TOKEN;
 const MP_API = "https://api.mercadopago.com";
+const PIX_DEMO = process.env.PIX_DEMO === "true";
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
@@ -129,6 +133,48 @@ async function markPaidIfOrderProcessed(mpOrder: any): Promise<boolean> {
   return !error;
 }
 
+/* ── Pix de DEMONSTRAÇÃO: gera um código "copia e cola" de exemplo (não move dinheiro) ── */
+function crc16(str: string): string {
+  let crc = 0xffff;
+  for (let i = 0; i < str.length; i++) {
+    crc ^= str.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1;
+      crc &= 0xffff;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4, "0");
+}
+const tlv = (id: string, value: string) => id + String(value.length).padStart(2, "0") + value;
+
+function demoBrCode(orderId: string, amount: number): string {
+  // chave ".invalid" nunca existe: se alguém tentar pagar de verdade, o banco recusa
+  const account = tlv("26", tlv("00", "br.gov.bcb.pix") + tlv("01", "demo@qwerty.invalid") + tlv("02", "PIX DEMONSTRACAO"));
+  const payload =
+    tlv("00", "01") +
+    tlv("01", "12") +
+    account +
+    tlv("52", "0000") +
+    tlv("53", "986") +
+    tlv("54", amount.toFixed(2)) +
+    tlv("58", "BR") +
+    tlv("59", "QWERTY DEMO") +
+    tlv("60", "SAO PAULO") +
+    tlv("62", tlv("05", orderId.replace(/-/g, "").slice(0, 25))) +
+    "6304";
+  return payload + crc16(payload);
+}
+
+const demoPixData = (orderId: string, total: number) => ({
+  paymentId: `DEMO-${orderId.slice(0, 8).toUpperCase()}`,
+  status: "pending",
+  qrCode: demoBrCode(orderId, total),
+  qrCodeBase64: null,
+  ticketUrl: null,
+  expiresAt: null,
+  demo: true,
+});
+
 /** Marca o pedido como pago SOMENTE se o Mercado Pago confirmar e o valor bater. */
 async function markPaidIfApproved(payment: any): Promise<boolean> {
   if (!payment || payment.status !== "approved") return false;
@@ -154,6 +200,8 @@ async function markPaidIfApproved(payment: any): Promise<boolean> {
 export default async function handler(req: Req, res: Res) {
   try {
     const action = first(req.query.action);
+
+    if (action === "config") return res.status(200).json({ pixDemo: PIX_DEMO });
 
     if (!SUPABASE_URL || !SERVICE_KEY || !MP_TOKEN) {
       return res.status(500).json({ error: "Servidor sem configuração de pagamento (variáveis de ambiente)." });
@@ -253,7 +301,9 @@ export default async function handler(req: Req, res: Res) {
       let status = order.status as string;
       let paymentStatus: string | null = null;
 
-      if (status === "pending" && order.payment_provider === "mercadopago_pix" && order.payment_id) {
+      if (status === "pending" && order.payment_provider === "pix_demo") {
+        paymentStatus = "pending"; // Pix de demonstração: só muda pela confirmação simulada
+      } else if (status === "pending" && order.payment_provider === "mercadopago_pix" && order.payment_id) {
         const o = await mpFetch(`/v1/orders/${order.payment_id}`, { token: MP_PIX_TOKEN });
         if (o.ok) {
           paymentStatus = pixData(o.json).status;
@@ -277,6 +327,13 @@ export default async function handler(req: Req, res: Res) {
       const { data: order } = await db.from("orders").select("*").eq("id", orderId).eq("user_id", user.id).maybeSingle();
       if (!order) return res.status(404).json({ error: "Pedido não encontrado." });
       if (order.status !== "pending") return res.status(400).json({ error: "Este pedido já foi finalizado." });
+
+      // MODO DEMONSTRAÇÃO: Pix simulado, sem falar com o Mercado Pago
+      if (PIX_DEMO) {
+        const demo = demoPixData(orderId, Number(order.total));
+        await db.from("orders").update({ payment_provider: "pix_demo", payment_id: demo.paymentId }).eq("id", orderId);
+        return res.status(200).json(demo);
+      }
 
       // reaproveita o Pix anterior se ainda for válido (evita cobranças duplicadas)
       if (order.payment_provider === "mercadopago_pix" && order.payment_id) {
@@ -339,10 +396,27 @@ export default async function handler(req: Req, res: Res) {
       return res.status(200).json(pixData(r.json));
     }
 
+    /* ── Pix de demonstração: simular a confirmação do pagamento ── */
+    if (action === "pix_confirm" && req.method === "POST") {
+      if (!PIX_DEMO) return res.status(403).json({ error: "Modo demonstração desativado." });
+      const orderId = String(req.body?.orderId || "");
+      const { data: order } = await db.from("orders").select("id, status, payment_provider").eq("id", orderId).eq("user_id", user.id).maybeSingle();
+      if (!order || order.payment_provider !== "pix_demo") return res.status(404).json({ error: "Pedido de demonstração não encontrado." });
+      if (order.status !== "pending") return res.status(200).json({ ok: true });
+      const { error } = await db
+        .from("orders")
+        .update({ status: "paid", paid_at: new Date().toISOString() })
+        .eq("id", orderId)
+        .eq("status", "pending");
+      if (error) return res.status(500).json({ error: "Não foi possível confirmar." });
+      return res.status(200).json({ ok: true });
+    }
+
     /* ── Pix: consultar o QR Code já gerado ── */
     if (action === "pix_info" && req.method === "GET") {
       const orderId = String(first(req.query.orderId) || "");
       const { data: order } = await db.from("orders").select("*").eq("id", orderId).eq("user_id", user.id).maybeSingle();
+      if (order?.payment_provider === "pix_demo") return res.status(200).json(demoPixData(order.id, Number(order.total)));
       if (!order || order.payment_provider !== "mercadopago_pix" || !order.payment_id) {
         return res.status(404).json({ error: "Este pedido não tem Pix gerado." });
       }

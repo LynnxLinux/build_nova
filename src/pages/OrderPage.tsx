@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
 import {
   checkPaymentStatus,
+  confirmDemoPix,
   fetchPixInfo,
   isPaidStatus,
   orderStatusLabel,
@@ -21,11 +22,12 @@ import { formatCpf, isValidCpf } from "@/utils/cpf";
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 /* ── Pix: QR Code e copia e cola ─────────────────────────── */
-const PixPanel = ({ orderId }: { orderId: string }) => {
+const PixPanel = ({ orderId, demo, onConfirmed }: { orderId: string; demo: boolean; onConfirmed: () => void }) => {
   const [info, setInfo] = useState<PixInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [cpf, setCpf] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [qrImage, setQrImage] = useState<string | null>(null);
 
   // Desenha o QR Code a partir do código "copia e cola" (no teste o Mercado Pago não envia a imagem)
@@ -64,6 +66,19 @@ const PixPanel = ({ orderId }: { orderId: string }) => {
       toast.error(err instanceof Error ? err.message : "Não foi possível gerar o Pix.");
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const confirmDemo = async () => {
+    setConfirming(true);
+    try {
+      await confirmDemoPix(orderId);
+      toast.success("Pagamento simulado!");
+      onConfirmed();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Não foi possível simular o pagamento.");
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -112,6 +127,11 @@ const PixPanel = ({ orderId }: { orderId: string }) => {
       <p className="text-sm font-semibold text-foreground-strong flex items-center justify-center gap-2">
         <QrCode className="h-4 w-4 text-primary" /> Pague com Pix
       </p>
+      {demo && (
+        <p className="text-xs rounded-md bg-yellow-500/15 text-yellow-500 px-3 py-2">
+          MODO DEMONSTRAÇÃO: este Pix é simulado e não movimenta dinheiro. Use o botão abaixo para simular o pagamento.
+        </p>
+      )}
       {qrImage && (
         <img
           src={qrImage}
@@ -139,6 +159,16 @@ const PixPanel = ({ orderId }: { orderId: string }) => {
             <Copy className="h-3.5 w-3.5" /> Copiar
           </button>
         </div>
+      )}
+      {demo && (
+        <button
+          type="button"
+          onClick={confirmDemo}
+          disabled={confirming}
+          className="px-5 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-md shadow-button disabled:opacity-50"
+        >
+          {confirming ? "Confirmando..." : "Simular pagamento do Pix"}
+        </button>
       )}
       {info.expiresAt && (
         <p className="text-xs text-muted-foreground">
@@ -197,7 +227,7 @@ const OrderPage = () => {
     const cameFromPayment = searchParams.has("payment_id") || searchParams.has("collection_id");
     // Pix não volta do Mercado Pago com parâmetros: esvazia se o pagamento acabou de ser confirmado
     const justPaidPix =
-      order.paymentProvider === "mercadopago_pix" && !!order.paidAt && Date.now() - new Date(order.paidAt).getTime() < 60 * 60 * 1000;
+      (order.paymentProvider === "mercadopago_pix" || order.paymentProvider === "pix_demo") && !!order.paidAt && Date.now() - new Date(order.paidAt).getTime() < 60 * 60 * 1000;
     const key = `qwerty-cart-cleared-${id}`;
     if ((cameFromPayment || justPaidPix) && !sessionStorage.getItem(key)) {
       sessionStorage.setItem(key, "1");
@@ -238,7 +268,8 @@ const OrderPage = () => {
   }
 
   const paid = isPaidStatus(order.status);
-  const isPix = order.paymentProvider === "mercadopago_pix";
+  const isDemoPix = order.paymentProvider === "pix_demo";
+  const isPix = order.paymentProvider === "mercadopago_pix" || isDemoPix;
   maxAttempts.current = isPix ? 225 : 15; // Pix: acompanha por ~30 min
   const rejected = order.status === "pending" && paymentStatus === "rejected";
   const addr = order.address;
@@ -268,7 +299,7 @@ const OrderPage = () => {
 
       {order.status === "pending" && isPix && (
         <div className="mb-6">
-          <PixPanel orderId={order.id} />
+          <PixPanel orderId={order.id} demo={isDemoPix} onConfirmed={refreshStatus} />
         </div>
       )}
 

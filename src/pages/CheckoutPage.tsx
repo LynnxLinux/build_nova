@@ -11,6 +11,7 @@ import {
   lookupCep,
   startPayment,
   startPix,
+  useCheckoutConfig,
   useAddresses,
   useCreateAddress,
   useDeleteAddress,
@@ -148,6 +149,8 @@ const CheckoutPage = () => {
   const [method, setMethod] = useState<"pix" | "mp">("pix");
   const [cpf, setCpf] = useState("");
   const navigate = useNavigate();
+  const { data: config } = useCheckoutConfig();
+  const pixDemo = !!config?.pixDemo;
 
   const address = useMemo(() => addresses.find((a) => a.id === addressId) ?? null, [addresses, addressId]);
   const { data: shippingOptions = [], isLoading: loadingShipping } = useShippingOptions(address?.state);
@@ -180,7 +183,7 @@ const CheckoutPage = () => {
 
   const handlePay = async () => {
     if (!address || !shipping) return;
-    if (method === "pix" && !isValidCpf(cpf)) {
+    if (method === "pix" && !pixDemo && !isValidCpf(cpf)) {
       toast.error("Informe um CPF válido para pagar com Pix.");
       return;
     }
@@ -343,7 +346,9 @@ const CheckoutPage = () => {
                   <p className="font-medium text-foreground-strong flex items-center gap-1.5">
                     <QrCode className="h-4 w-4" /> Pix
                   </p>
-                  <p className="text-muted-foreground">QR Code ou copia e cola. Confirmação na hora, válido por 30 minutos.</p>
+                  <p className="text-muted-foreground">
+                    {pixDemo ? "Modo demonstração: Pix simulado, nenhum dinheiro é movimentado." : "QR Code ou copia e cola. Confirmação na hora, válido por 30 minutos."}
+                  </p>
                 </div>
               </label>
               <label
@@ -359,7 +364,7 @@ const CheckoutPage = () => {
               </label>
             </div>
 
-            {method === "pix" && (
+            {method === "pix" && !pixDemo && (
               <div className="mt-4">
                 <label className="text-sm font-medium text-foreground-strong block mb-1">CPF do pagador</label>
                 <input

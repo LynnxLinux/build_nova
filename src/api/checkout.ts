@@ -219,6 +219,8 @@ export interface PixInfo {
   qrCodeBase64: string | null;
   ticketUrl?: string | null;
   expiresAt: string | null;
+  /** true no Pix de demonstração (simulado) */
+  demo?: boolean;
 }
 
 /** Gera o Pix do pedido (QR Code + copia e cola) */
@@ -226,6 +228,29 @@ export async function startPix(orderId: string, cpf: string): Promise<PixInfo> {
   const json = await callPayments("action=pix_create", { method: "POST", body: JSON.stringify({ orderId, cpf }) });
   return json as unknown as PixInfo;
 }
+
+/** Modo demonstração: simula a confirmação do Pix (só funciona se PIX_DEMO=true no servidor) */
+export async function confirmDemoPix(orderId: string): Promise<void> {
+  await callPayments("action=pix_confirm", { method: "POST", body: JSON.stringify({ orderId }) });
+}
+
+/** Configuração pública do servidor de pagamento (Pix de demonstração ligado?) */
+export const useCheckoutConfig = () =>
+  useQuery({
+    queryKey: ["checkout_config"],
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+    queryFn: async (): Promise<{ pixDemo: boolean }> => {
+      try {
+        const r = await fetch("/api/payments?action=config");
+        if (!r.ok) return { pixDemo: false };
+        const j = (await r.json()) as { pixDemo?: boolean };
+        return { pixDemo: !!j.pixDemo };
+      } catch {
+        return { pixDemo: false };
+      }
+    },
+  });
 
 /** Busca o Pix já gerado do pedido */
 export async function fetchPixInfo(orderId: string): Promise<PixInfo> {
