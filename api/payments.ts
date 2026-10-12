@@ -14,6 +14,7 @@
  *   VITE_SUPABASE_URL          (já existe)
  *   MP_USE_SANDBOX             opcional: NÃO use (causa erro no checkout de teste)
  *   MP_PIX_TEST                "true" só em TESTE: envia nome APRO para o Pix ser aprovado sozinho
+ *   MP_PIX_ACCESS_TOKEN        opcional: token só para o Pix (se não existir, usa o MP_ACCESS_TOKEN)
  *   SITE_URL                   opcional: https://seu-site.vercel.app (senão usa o do navegador)
  */
 import { randomUUID } from "node:crypto";
@@ -33,6 +34,8 @@ interface Res {
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const MP_TOKEN = process.env.MP_ACCESS_TOKEN || "";
+// Pix pode usar outro token (ex.: credenciais de teste); se não existir, usa o mesmo do cartão
+const MP_PIX_TOKEN = process.env.MP_PIX_ACCESS_TOKEN || MP_TOKEN;
 const MP_API = "https://api.mercadopago.com";
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
@@ -48,10 +51,13 @@ async function getUser(req: Req) {
   return error || !data.user ? null : data.user;
 }
 
-async function mpFetch(path: string, init?: { method?: string; body?: unknown; headers?: Record<string, string> }) {
+async function mpFetch(
+  path: string,
+  init?: { method?: string; body?: unknown; headers?: Record<string, string>; token?: string },
+) {
   const r = await fetch(`${MP_API}${path}`, {
     method: init?.method || "GET",
-    headers: { Authorization: `Bearer ${MP_TOKEN}`, "Content-Type": "application/json", ...(init?.headers || {}) },
+    headers: { Authorization: `Bearer ${init?.token || MP_TOKEN}`, "Content-Type": "application/json", ...(init?.headers || {}) },
     body: init?.body ? JSON.stringify(init.body) : undefined,
   });
   const json = await r.json().catch(() => ({}));
@@ -71,23 +77,57 @@ function isValidCpf(cpf: string): boolean {
   return true;
 }
 
-/** Dados do Pix que o front precisa para mostrar o QR Code */
-function pixData(payment: any) {
-  const td = payment?.point_of_interaction?.transaction_data;
+/**
+ * Pix usa a Orders API do Mercado Pago (/v1/orders).
+ * Status da order do MP -> status usado pelo nosso front:
+ *   created / action_required -> "pending" (aguardando o pagamento)
+ *   processed                 -> "approved" (pago)
+ *   outros (expired, canceled, failed...) -> repassados (o front trata como expirado)
+ */
+function pixData(mpOrder: any) {
+  const payment = mpOrder?.transactions?.payments?.[0];
+  const method = payment?.payment_method;
+  const raw = String(mpOrder?.status ?? "");
+  const status = raw === "processed" ? "approved" : raw === "action_required" || raw === "created" || raw === "" ? "pending" : raw;
+  const created = mpOrder?.created_date ? new Date(mpOrder.created_date).getTime() : NaN;
   return {
-    paymentId: String(payment?.id ?? ""),
-    status: String(payment?.status ?? ""),
-    qrCode: (td?.qr_code as string | undefined) ?? null,
-    qrCodeBase64: (td?.qr_code_base64 as string | undefined) ?? null,
-    expiresAt: (payment?.date_of_expiration as string | undefined) ?? null,
+    paymentId: String(mpOrder?.id ?? ""),
+    status,
+    qrCode: (method?.qr_code as string | undefined) || null,
+    qrCodeBase64: (method?.qr_code_base64 as string | undefined) || null,
+    ticketUrl: (method?.ticket_url as string | undefined) || null,
+    expiresAt: Number.isFinite(created) ? new Date(created + 30 * 60_000).toISOString() : null,
   };
 }
 
-const pixIsUsable = (payment: any) => {
-  if (!payment || !["pending", "in_process", "approved"].includes(payment.status)) return false;
-  const exp = payment.date_of_expiration ? new Date(payment.date_of_expiration).getTime() : Infinity;
-  return payment.status === "approved" || exp > Date.now() + 60_000;
+const pixIsUsable = (mpOrder: any) => {
+  const d = pixData(mpOrder);
+  if (d.status === "approved") return true;
+  if (d.status !== "pending") return false;
+  return !d.expiresAt || new Date(d.expiresAt).getTime() > Date.now() + 60_000;
 };
+
+/** Marca o pedido como pago se a order de Pix do Mercado Pago estiver "processed" e o valor bater. */
+async function markPaidIfOrderProcessed(mpOrder: any): Promise<boolean> {
+  if (!mpOrder || mpOrder.status !== "processed") return false;
+  const orderId = String(mpOrder.external_reference || "");
+  if (!orderId) return false;
+
+  const db = admin();
+  const { data: order } = await db.from("orders").select("id, total, status").eq("id", orderId).maybeSingle();
+  if (!order || order.status !== "pending") return !!order;
+
+  if (Math.abs(Number(mpOrder.total_amount) - Number(order.total)) > 0.01) {
+    console.error("Valor do Pix diferente do pedido", orderId, mpOrder.total_amount, order.total);
+    return false;
+  }
+  const { error } = await db
+    .from("orders")
+    .update({ status: "paid", payment_id: String(mpOrder.id), paid_at: new Date().toISOString() })
+    .eq("id", orderId)
+    .eq("status", "pending");
+  return !error;
+}
 
 /** Marca o pedido como pago SOMENTE se o Mercado Pago confirmar e o valor bater. */
 async function markPaidIfApproved(payment: any): Promise<boolean> {
@@ -121,10 +161,13 @@ export default async function handler(req: Req, res: Res) {
 
     /* ── Webhook do Mercado Pago (sem login: confirmamos consultando a API deles) ── */
     if (action === "webhook") {
-      const paymentId = first(req.query["data.id"]) || req.body?.data?.id;
+      const dataId = first(req.query["data.id"]) || req.body?.data?.id;
       const type = first(req.query.type) || req.body?.type;
-      if (paymentId && (!type || type === "payment")) {
-        const p = await mpFetch(`/v1/payments/${paymentId}`);
+      if (dataId && type === "order") {
+        const o = await mpFetch(`/v1/orders/${dataId}`, { token: MP_PIX_TOKEN });
+        if (o.ok) await markPaidIfOrderProcessed(o.json);
+      } else if (dataId && (!type || type === "payment")) {
+        const p = await mpFetch(`/v1/payments/${dataId}`);
         if (p.ok) await markPaidIfApproved(p.json);
       }
       return res.status(200).json({ ok: true });
@@ -199,13 +242,24 @@ export default async function handler(req: Req, res: Res) {
     /* ── Consultar status (chamado pela página do pedido) ── */
     if (action === "status" && req.method === "GET") {
       const orderId = String(first(req.query.orderId) || "");
-      const { data: order } = await db.from("orders").select("id, status").eq("id", orderId).eq("user_id", user.id).maybeSingle();
+      const { data: order } = await db
+        .from("orders")
+        .select("id, status, payment_provider, payment_id")
+        .eq("id", orderId)
+        .eq("user_id", user.id)
+        .maybeSingle();
       if (!order) return res.status(404).json({ error: "Pedido não encontrado." });
 
       let status = order.status as string;
       let paymentStatus: string | null = null;
 
-      if (status === "pending") {
+      if (status === "pending" && order.payment_provider === "mercadopago_pix" && order.payment_id) {
+        const o = await mpFetch(`/v1/orders/${order.payment_id}`, { token: MP_PIX_TOKEN });
+        if (o.ok) {
+          paymentStatus = pixData(o.json).status;
+          if (await markPaidIfOrderProcessed(o.json)) status = "paid";
+        }
+      } else if (status === "pending") {
         const r = await mpFetch(
           `/v1/payments/search?external_reference=${encodeURIComponent(orderId)}&sort=date_created&criteria=desc`,
         );
@@ -217,7 +271,7 @@ export default async function handler(req: Req, res: Res) {
       return res.status(200).json({ status, paymentStatus });
     }
 
-    /* ── Pix: gerar QR Code ── */
+    /* ── Pix: gerar QR Code (Orders API) ── */
     if (action === "pix_create" && req.method === "POST") {
       const orderId = String(req.body?.orderId || "");
       const { data: order } = await db.from("orders").select("*").eq("id", orderId).eq("user_id", user.id).maybeSingle();
@@ -226,26 +280,26 @@ export default async function handler(req: Req, res: Res) {
 
       // reaproveita o Pix anterior se ainda for válido (evita cobranças duplicadas)
       if (order.payment_provider === "mercadopago_pix" && order.payment_id) {
-        const prev = await mpFetch(`/v1/payments/${order.payment_id}`);
-        if (prev.ok && pixIsUsable(prev.json)) return res.status(200).json(pixData(prev.json));
+        const prev = await mpFetch(`/v1/orders/${order.payment_id}`, { token: MP_PIX_TOKEN });
+        if (prev.ok && pixIsUsable(prev.json)) {
+          await markPaidIfOrderProcessed(prev.json);
+          return res.status(200).json(pixData(prev.json));
+        }
       }
 
       const cpf = onlyDigits(req.body?.cpf);
       if (!isValidCpf(cpf)) return res.status(400).json({ error: "CPF inválido." });
 
-      const origin = process.env.SITE_URL || first(req.headers.origin) || `https://${first(req.headers.host) || ""}`;
       const fullName = String(order.address?.recipient_name || "Cliente").trim().split(/\s+/);
       const firstName = fullName[0] || "Cliente";
       const lastName = fullName.slice(1).join(" ") || firstName;
-      // 30 minutos de validade, no fuso de Brasília (-03:00)
-      const expiration = new Date(Date.now() + 30 * 60_000 - 3 * 3_600_000).toISOString().replace("Z", "-03:00");
+      const amount = Number(order.total).toFixed(2);
 
-      const body: Record<string, unknown> = {
-        transaction_amount: Number(order.total),
-        description: `Pedido Qwerty ${orderId.slice(0, 8).toUpperCase()}`,
-        payment_method_id: "pix",
+      const body = {
+        type: "online",
+        processing_mode: "automatic",
         external_reference: orderId,
-        date_of_expiration: expiration,
+        total_amount: amount,
         payer: {
           email: user.email,
           // em TESTE o nome "APRO" faz o Mercado Pago aprovar o Pix automaticamente
@@ -253,16 +307,31 @@ export default async function handler(req: Req, res: Res) {
           last_name: lastName,
           identification: { type: "CPF", number: cpf },
         },
+        transactions: {
+          payments: [
+            {
+              amount,
+              payment_method: { id: "pix", type: "bank_transfer" },
+              expiration_time: "PT30M", // 30 minutos
+            },
+          ],
+        },
       };
-      if (origin.startsWith("https://")) body.notification_url = `${origin}/api/payments?action=webhook`;
 
-      const r = await mpFetch("/v1/payments", { method: "POST", body, headers: { "X-Idempotency-Key": randomUUID() } });
+      const r = await mpFetch("/v1/orders", {
+        method: "POST",
+        body,
+        token: MP_PIX_TOKEN,
+        headers: { "X-Idempotency-Key": randomUUID() },
+      });
       if (!r.ok) {
         console.error("Erro Mercado Pago (Pix):", r.status, JSON.stringify(r.json));
-        const causes = Array.isArray(r.json?.cause)
-          ? r.json.cause.map((c: any) => c?.description || c?.code).filter(Boolean).join("; ")
-          : "";
-        const detail = [r.status, r.json?.message || r.json?.error, causes].filter(Boolean).join(" - ");
+        const errs = Array.isArray(r.json?.errors)
+          ? r.json.errors.map((e: any) => e?.message || e?.code).filter(Boolean).join("; ")
+          : Array.isArray(r.json?.cause)
+            ? r.json.cause.map((c: any) => c?.description || c?.code).filter(Boolean).join("; ")
+            : "";
+        const detail = [r.status, r.json?.message || r.json?.error, errs].filter(Boolean).join(" - ");
         return res.status(502).json({ error: "Não foi possível gerar o Pix.", detail });
       }
 
@@ -277,10 +346,10 @@ export default async function handler(req: Req, res: Res) {
       if (!order || order.payment_provider !== "mercadopago_pix" || !order.payment_id) {
         return res.status(404).json({ error: "Este pedido não tem Pix gerado." });
       }
-      const p = await mpFetch(`/v1/payments/${order.payment_id}`);
-      if (!p.ok) return res.status(502).json({ error: "Não foi possível consultar o Pix." });
-      await markPaidIfApproved(p.json);
-      return res.status(200).json(pixData(p.json));
+      const o = await mpFetch(`/v1/orders/${order.payment_id}`, { token: MP_PIX_TOKEN });
+      if (!o.ok) return res.status(502).json({ error: "Não foi possível consultar o Pix." });
+      await markPaidIfOrderProcessed(o.json);
+      return res.status(200).json(pixData(o.json));
     }
 
     return res.status(400).json({ error: "Ação inválida." });

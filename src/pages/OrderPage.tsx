@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { toDataURL } from "qrcode";
 import { CheckCircle2, Clock, Copy, QrCode, RefreshCw, XCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
@@ -25,6 +26,21 @@ const PixPanel = ({ orderId }: { orderId: string }) => {
   const [loading, setLoading] = useState(true);
   const [cpf, setCpf] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [qrImage, setQrImage] = useState<string | null>(null);
+
+  // Desenha o QR Code a partir do código "copia e cola" (no teste o Mercado Pago não envia a imagem)
+  useEffect(() => {
+    let cancelled = false;
+    setQrImage(info?.qrCodeBase64 ? `data:image/png;base64,${info.qrCodeBase64}` : null);
+    if (info?.qrCode && !info.qrCodeBase64) {
+      toDataURL(info.qrCode, { margin: 1, width: 260 })
+        .then((url) => !cancelled && setQrImage(url))
+        .catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [info?.qrCode, info?.qrCodeBase64]);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,9 +112,9 @@ const PixPanel = ({ orderId }: { orderId: string }) => {
       <p className="text-sm font-semibold text-foreground-strong flex items-center justify-center gap-2">
         <QrCode className="h-4 w-4 text-primary" /> Pague com Pix
       </p>
-      {info.qrCodeBase64 && (
+      {qrImage && (
         <img
-          src={`data:image/png;base64,${info.qrCodeBase64}`}
+          src={qrImage}
           alt="QR Code do Pix"
           className="mx-auto h-52 w-52 rounded-lg bg-white p-2"
         />

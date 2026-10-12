@@ -217,6 +217,7 @@ export interface PixInfo {
   status: string;
   qrCode: string | null;
   qrCodeBase64: string | null;
+  ticketUrl?: string | null;
   expiresAt: string | null;
 }
 
