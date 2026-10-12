@@ -2,12 +2,136 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { CheckCircle2, Clock, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Copy, QrCode, RefreshCw, XCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
-import { checkPaymentStatus, isPaidStatus, orderStatusLabel, startPayment, useOrder } from "@/api/checkout";
+import {
+  checkPaymentStatus,
+  fetchPixInfo,
+  isPaidStatus,
+  orderStatusLabel,
+  startPayment,
+  startPix,
+  useOrder,
+  type PixInfo,
+} from "@/api/checkout";
+import { formatCpf, isValidCpf } from "@/utils/cpf";
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+/* ── Pix: QR Code e copia e cola ─────────────────────────── */
+const PixPanel = ({ orderId }: { orderId: string }) => {
+  const [info, setInfo] = useState<PixInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [cpf, setCpf] = useState("");
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPixInfo(orderId)
+      .then((i) => !cancelled && setInfo(i))
+      .catch(() => undefined)
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
+
+  const expired = !!info && !["pending", "in_process", "approved"].includes(info.status);
+
+  const generate = async () => {
+    if (!isValidCpf(cpf)) return toast.error("Informe um CPF válido.");
+    setGenerating(true);
+    try {
+      setInfo(await startPix(orderId, cpf));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Não foi possível gerar o Pix.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!info?.qrCode) return;
+    try {
+      await navigator.clipboard.writeText(info.qrCode);
+      toast.success("Código Pix copiado!");
+    } catch {
+      toast.error("Não foi possível copiar. Selecione o código e copie manualmente.");
+    }
+  };
+
+  if (loading) return <p className="text-sm text-muted-foreground text-center py-6">Carregando Pix...</p>;
+
+  if (!info || expired) {
+    return (
+      <div className="rounded-lg border border-border bg-accent p-5 space-y-3">
+        <p className="text-sm text-foreground-strong font-medium flex items-center gap-2">
+          <QrCode className="h-4 w-4 text-primary" /> {expired ? "O Pix expirou." : "Pix ainda não gerado."} Gere um novo para pagar.
+        </p>
+        <input
+          className="w-full max-w-xs bg-background border border-border rounded-md px-3 py-2.5 text-sm text-foreground-strong focus:ring-2 focus:ring-ring outline-none"
+          placeholder="CPF do pagador"
+          value={cpf}
+          onChange={(e) => setCpf(formatCpf(e.target.value))}
+          inputMode="numeric"
+          maxLength={14}
+        />
+        <div>
+          <button
+            type="button"
+            onClick={generate}
+            disabled={generating}
+            className="px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-md shadow-button disabled:opacity-50"
+          >
+            {generating ? "Gerando..." : "Gerar novo Pix"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-primary/30 bg-primary/5 p-5 text-center space-y-4">
+      <p className="text-sm font-semibold text-foreground-strong flex items-center justify-center gap-2">
+        <QrCode className="h-4 w-4 text-primary" /> Pague com Pix
+      </p>
+      {info.qrCodeBase64 && (
+        <img
+          src={`data:image/png;base64,${info.qrCodeBase64}`}
+          alt="QR Code do Pix"
+          className="mx-auto h-52 w-52 rounded-lg bg-white p-2"
+        />
+      )}
+      <p className="text-xs text-muted-foreground">
+        Abra o app do seu banco, escolha Pix e leia o QR Code, ou use o copia e cola abaixo.
+      </p>
+      {info.qrCode && (
+        <div className="flex gap-2 max-w-md mx-auto">
+          <input
+            readOnly
+            value={info.qrCode}
+            onFocus={(e) => e.currentTarget.select()}
+            className="flex-1 min-w-0 bg-background border border-border rounded-md px-3 py-2 text-xs text-foreground-strong"
+            aria-label="Código Pix copia e cola"
+          />
+          <button
+            type="button"
+            onClick={copy}
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md shadow-button"
+          >
+            <Copy className="h-3.5 w-3.5" /> Copiar
+          </button>
+        </div>
+      )}
+      {info.expiresAt && (
+        <p className="text-xs text-muted-foreground">
+          Válido até {new Date(info.expiresAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}. Esta página atualiza sozinha quando o pagamento for confirmado.
+        </p>
+      )}
+    </div>
+  );
+};
 
 const OrderPage = () => {
   const { id } = useParams<{ id: string }>();
@@ -20,6 +144,7 @@ const OrderPage = () => {
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const attempts = useRef(0);
+  const maxAttempts = useRef(15);
 
   const { data: order, isLoading } = useOrder(user ? id : undefined, tick);
 
@@ -44,7 +169,7 @@ const OrderPage = () => {
     refreshStatus();
     const timer = setInterval(() => {
       attempts.current += 1;
-      if (attempts.current > 15) return clearInterval(timer);
+      if (attempts.current > maxAttempts.current) return clearInterval(timer);
       refreshStatus();
     }, 8000);
     return () => clearInterval(timer);
@@ -54,8 +179,11 @@ const OrderPage = () => {
   useEffect(() => {
     if (!order || !isPaidStatus(order.status) || !id) return;
     const cameFromPayment = searchParams.has("payment_id") || searchParams.has("collection_id");
+    // Pix não volta do Mercado Pago com parâmetros: esvazia se o pagamento acabou de ser confirmado
+    const justPaidPix =
+      order.paymentProvider === "mercadopago_pix" && !!order.paidAt && Date.now() - new Date(order.paidAt).getTime() < 60 * 60 * 1000;
     const key = `qwerty-cart-cleared-${id}`;
-    if (cameFromPayment && !sessionStorage.getItem(key)) {
+    if ((cameFromPayment || justPaidPix) && !sessionStorage.getItem(key)) {
       sessionStorage.setItem(key, "1");
       clearCart();
     }
@@ -94,6 +222,8 @@ const OrderPage = () => {
   }
 
   const paid = isPaidStatus(order.status);
+  const isPix = order.paymentProvider === "mercadopago_pix";
+  maxAttempts.current = isPix ? 225 : 15; // Pix: acompanha por ~30 min
   const rejected = order.status === "pending" && paymentStatus === "rejected";
   const addr = order.address;
 
@@ -119,6 +249,12 @@ const OrderPage = () => {
         </p>
         <p className="text-xs text-muted-foreground mt-2">Pedido {order.id.slice(0, 8).toUpperCase()}</p>
       </motion.div>
+
+      {order.status === "pending" && isPix && (
+        <div className="mb-6">
+          <PixPanel orderId={order.id} />
+        </div>
+      )}
 
       <div className="bg-card rounded-lg shadow-card p-6 space-y-5">
         <div>
@@ -179,7 +315,7 @@ const OrderPage = () => {
                 disabled={retrying}
                 className="px-4 py-2.5 bg-primary text-primary-foreground text-sm font-semibold rounded-md shadow-button disabled:opacity-50"
               >
-                {retrying ? "Abrindo..." : rejected ? "Tentar pagar de novo" : "Ir para o pagamento"}
+                {retrying ? "Abrindo..." : isPix ? "Pagar com cartão ou boleto" : rejected ? "Tentar pagar de novo" : "Ir para o pagamento"}
               </button>
             </>
           )}

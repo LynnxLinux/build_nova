@@ -48,6 +48,8 @@ export interface Order {
   createdAt: string;
   paidAt: string | null;
   paymentId: string | null;
+  /** "mercadopago" (cartão/boleto/...) ou "mercadopago_pix" */
+  paymentProvider: string;
   items: OrderItem[];
 }
 
@@ -210,6 +212,26 @@ export async function startPayment(orderId: string): Promise<string> {
   return json.url as string;
 }
 
+export interface PixInfo {
+  paymentId: string;
+  status: string;
+  qrCode: string | null;
+  qrCodeBase64: string | null;
+  expiresAt: string | null;
+}
+
+/** Gera o Pix do pedido (QR Code + copia e cola) */
+export async function startPix(orderId: string, cpf: string): Promise<PixInfo> {
+  const json = await callPayments("action=pix_create", { method: "POST", body: JSON.stringify({ orderId, cpf }) });
+  return json as unknown as PixInfo;
+}
+
+/** Busca o Pix já gerado do pedido */
+export async function fetchPixInfo(orderId: string): Promise<PixInfo> {
+  const json = await callPayments(`action=pix_info&orderId=${encodeURIComponent(orderId)}`);
+  return json as unknown as PixInfo;
+}
+
 /** Consulta o pagamento no Mercado Pago (via servidor) e devolve o status atual do pedido */
 export async function checkPaymentStatus(orderId: string): Promise<{ status: OrderStatus; paymentStatus: string | null }> {
   const json = await callPayments(`action=status&orderId=${encodeURIComponent(orderId)}`);
@@ -229,6 +251,7 @@ export interface OrderRow {
   created_at: string;
   paid_at: string | null;
   payment_id: string | null;
+  payment_provider: string | null;
   order_items?: { id: string; name: string; unit_price: number; quantity: number }[];
 }
 
@@ -244,6 +267,7 @@ export const rowToOrder = (r: OrderRow): Order => ({
   createdAt: r.created_at,
   paidAt: r.paid_at,
   paymentId: r.payment_id,
+  paymentProvider: r.payment_provider ?? "mercadopago",
   items: (r.order_items ?? []).map((i) => ({
     id: i.id,
     name: i.name,

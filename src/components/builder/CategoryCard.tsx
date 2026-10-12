@@ -26,10 +26,13 @@ interface CategoryCardProps {
   hasError?: boolean;
   /** For case category: currently selected color */
   selectedColor?: CaseColor | null;
+  /** Texto de resumo (usado em Extras, que aceita vários itens) */
+  summary?: string;
 }
 
-const CategoryCard = ({ category, selectedItem, onClick, hasError, selectedColor }: CategoryCardProps) => {
+const CategoryCard = ({ category, selectedItem, onClick, hasError, selectedColor, summary }: CategoryCardProps) => {
   const Icon = categoryIcons[category];
+  const hasSelection = !!selectedItem || !!summary;
 
   return (
     <motion.button
@@ -40,13 +43,13 @@ const CategoryCard = ({ category, selectedItem, onClick, hasError, selectedColor
       className={`w-full flex items-center gap-3 rounded-xl p-3.5 text-left transition-colors ${
         hasError
           ? "bg-destructive/10 border border-destructive/30"
-          : selectedItem
+          : hasSelection
             ? "bg-primary/10 border border-primary/20"
             : "bg-card border border-border hover:border-primary/30"
       }`}
     >
       <div className={`flex items-center justify-center h-10 w-10 rounded-lg shrink-0 ${
-        selectedItem ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"
+        hasSelection ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"
       }`}>
         <Icon className="h-5 w-5" />
       </div>
@@ -57,7 +60,7 @@ const CategoryCard = ({ category, selectedItem, onClick, hasError, selectedColor
         </p>
         <div className="flex items-center gap-2">
           <p className="text-sm font-semibold truncate" style={{ color: "hsl(var(--foreground-strong))" }}>
-            {selectedItem ? selectedItem.name : "Selecionar..."}
+            {summary ?? (selectedItem ? selectedItem.name : "Selecionar...")}
           </p>
           {/* Color dot for case */}
           {selectedColor && category === "case" && (

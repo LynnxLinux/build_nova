@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { CreditCard, MapPin, Plus, Trash2, Truck } from "lucide-react";
+import { CreditCard, MapPin, Package, Plus, QrCode, Trash2, Truck } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useCart } from "@/context/CartContext";
+import { formatCpf, isValidCpf } from "@/utils/cpf";
 import {
   createOrder,
   lookupCep,
   startPayment,
+  startPix,
   useAddresses,
   useCreateAddress,
   useDeleteAddress,
@@ -143,6 +145,9 @@ const CheckoutPage = () => {
   const [showForm, setShowForm] = useState(false);
   const [shippingMethod, setShippingMethod] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
+  const [method, setMethod] = useState<"pix" | "mp">("pix");
+  const [cpf, setCpf] = useState("");
+  const navigate = useNavigate();
 
   const address = useMemo(() => addresses.find((a) => a.id === addressId) ?? null, [addresses, addressId]);
   const { data: shippingOptions = [], isLoading: loadingShipping } = useShippingOptions(address?.state);
@@ -175,9 +180,18 @@ const CheckoutPage = () => {
 
   const handlePay = async () => {
     if (!address || !shipping) return;
+    if (method === "pix" && !isValidCpf(cpf)) {
+      toast.error("Informe um CPF válido para pagar com Pix.");
+      return;
+    }
     setPaying(true);
     try {
       const orderId = await createOrder(address.id, shipping.method);
+      if (method === "pix") {
+        await startPix(orderId, cpf); // gera o QR Code; ele aparece na página do pedido
+        navigate(`/pedido/${orderId}`);
+        return;
+      }
       const url = await startPayment(orderId);
       window.location.href = url; // vai para o Mercado Pago
     } catch (err) {
@@ -312,12 +326,60 @@ const CheckoutPage = () => {
               <p className="text-xs text-muted-foreground mt-3">Valores e prazos simulados por região (projeto acadêmico).</p>
             )}
           </section>
+
+          {/* 3. Forma de pagamento */}
+          <section className="bg-card rounded-lg shadow-card p-6">
+            <h2 className="font-semibold text-lg mb-4 flex items-center gap-2">
+              <CreditCard className="h-5 w-5 text-primary" /> 3. Forma de pagamento
+            </h2>
+            <div className="space-y-2">
+              <label
+                className={`flex items-start gap-3 p-3 rounded-md border cursor-pointer transition-colors ${
+                  method === "pix" ? "border-primary bg-primary/10" : "border-border bg-accent"
+                }`}
+              >
+                <input type="radio" name="method" className="mt-1" checked={method === "pix"} onChange={() => setMethod("pix")} />
+                <div className="flex-1 text-sm">
+                  <p className="font-medium text-foreground-strong flex items-center gap-1.5">
+                    <QrCode className="h-4 w-4" /> Pix
+                  </p>
+                  <p className="text-muted-foreground">QR Code ou copia e cola. Confirmação na hora, válido por 30 minutos.</p>
+                </div>
+              </label>
+              <label
+                className={`flex items-start gap-3 p-3 rounded-md border cursor-pointer transition-colors ${
+                  method === "mp" ? "border-primary bg-primary/10" : "border-border bg-accent"
+                }`}
+              >
+                <input type="radio" name="method" className="mt-1" checked={method === "mp"} onChange={() => setMethod("mp")} />
+                <div className="flex-1 text-sm">
+                  <p className="font-medium text-foreground-strong">Cartão, boleto e outros (Mercado Pago)</p>
+                  <p className="text-muted-foreground">Você será levado ao ambiente seguro do Mercado Pago.</p>
+                </div>
+              </label>
+            </div>
+
+            {method === "pix" && (
+              <div className="mt-4">
+                <label className="text-sm font-medium text-foreground-strong block mb-1">CPF do pagador</label>
+                <input
+                  className={`${inputClass} max-w-xs`}
+                  placeholder="000.000.000-00"
+                  value={cpf}
+                  onChange={(e) => setCpf(formatCpf(e.target.value))}
+                  inputMode="numeric"
+                  maxLength={14}
+                />
+                <p className="text-xs text-muted-foreground mt-1">Exigido pelo Pix. Não guardamos o seu CPF.</p>
+              </div>
+            )}
+          </section>
         </div>
 
-        {/* 3. Resumo e pagamento */}
+        {/* Resumo */}
         <aside className="bg-card rounded-lg shadow-card p-6 h-fit lg:sticky lg:top-24">
           <h2 className="font-semibold text-lg mb-4 flex items-center gap-2">
-            <CreditCard className="h-5 w-5 text-primary" /> 3. Resumo
+            <Package className="h-5 w-5 text-primary" /> Resumo
           </h2>
           <ul className="space-y-2 mb-4 text-sm">
             {items.map((i) => (
@@ -351,10 +413,10 @@ const CheckoutPage = () => {
             disabled={!address || !shipping || paying}
             className="w-full mt-5 py-3 bg-primary text-primary-foreground font-semibold rounded-md shadow-button disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {paying ? "Redirecionando..." : "Pagar com Mercado Pago"}
+            {paying ? (method === "pix" ? "Gerando Pix..." : "Redirecionando...") : method === "pix" ? "Pagar com Pix" : "Pagar com Mercado Pago"}
           </motion.button>
           <p className="text-xs text-muted-foreground mt-3">
-            Você será levado ao ambiente seguro do Mercado Pago. O valor final é confirmado pelo servidor.
+            O valor final é confirmado pelo servidor antes do pagamento.
           </p>
         </aside>
       </div>

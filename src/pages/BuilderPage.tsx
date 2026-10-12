@@ -9,6 +9,7 @@ import { supportsWebGL } from "@/utils/webgl";
 import { toast } from "sonner";
 import { AlertTriangle, ShoppingCart, RotateCcw, Save } from "lucide-react";
 import type { BuilderProduct, ComponentCategory, LayoutSize } from "@/data/builderProducts";
+import type { Product } from "@/data/products";
 import { validateBuild, type BuildSelection, type CompatibilityError } from "@/utils/compatibilidade";
 
 import KeyboardPreview from "@/components/builder/KeyboardPreview";
@@ -17,6 +18,7 @@ const Keyboard3D = lazy(() => import("@/components/builder/Keyboard3D"));
 import LayoutSelector from "@/components/builder/LayoutSelector";
 import CategoryCard from "@/components/builder/CategoryCard";
 import ProductModal from "@/components/builder/ProductModal";
+import ExtrasModal from "@/components/builder/ExtrasModal";
 import ColorPicker from "@/components/builder/ColorPicker";
 
 const categoryOrder: (ComponentCategory | "extras")[] = ["case", "switch", "keycap", "pcb", "extras"];
@@ -67,6 +69,18 @@ const BuilderPage = () => {
 
   const [openCategory, setOpenCategory] = useState<ComponentCategory | "extras" | null>(null);
 
+  // Extras (cabos e acessórios da loja): vários itens, não afetam a compatibilidade
+  const [selectedExtras, setSelectedExtras] = useState<Product[]>([]);
+  const toggleExtra = (p: Product) =>
+    setSelectedExtras((prev) => (prev.some((e) => e.id === p.id) ? prev.filter((e) => e.id !== p.id) : [...prev, p]));
+  const extrasTotal = selectedExtras.reduce((s, e) => s + e.price, 0);
+  const extrasSummary =
+    selectedExtras.length === 0
+      ? undefined
+      : selectedExtras.length === 1
+        ? selectedExtras[0].name
+        : `${selectedExtras.length} itens: ${selectedExtras.map((e) => e.name).join(", ")}`;
+
   const selection: BuildSelection = useMemo(
     () => ({ switch: selectedSwitch, keycap: selectedKeycap, pcb: selectedPcb, case: selectedCase }),
     [selectedSwitch, selectedKeycap, selectedPcb, selectedCase],
@@ -94,12 +108,14 @@ const BuilderPage = () => {
 
   const hasErrors = errors.some((e) => e.severity === "error");
 
-  const totalPrice = useMemo(
+  const partsPrice = useMemo(
     () => [selectedSwitch, selectedKeycap, selectedPcb, selectedCase].filter(Boolean).reduce((s, p) => s + p!.price, 0),
     [selectedSwitch, selectedKeycap, selectedPcb, selectedCase],
   );
+  const totalPrice = partsPrice + extrasTotal;
 
-  const selectedCount = [selectedSwitch, selectedKeycap, selectedPcb, selectedCase].filter(Boolean).length;
+  const partsCount = [selectedSwitch, selectedKeycap, selectedPcb, selectedCase].filter(Boolean).length;
+  const selectedCount = partsCount + selectedExtras.length;
 
   // Resolve case color hex
   const caseColorHex = useMemo(() => {
@@ -152,6 +168,7 @@ const BuilderPage = () => {
     setSelectedPcb(null);
     setSelectedCase(null);
     setSelectedCaseColorId(null);
+    setSelectedExtras([]);
   };
 
   useEffect(() => {
@@ -187,15 +204,19 @@ const BuilderPage = () => {
       return;
     }
     const parts = [selectedSwitch, selectedKeycap, selectedPcb, selectedCase].filter(Boolean) as BuilderProduct[];
-    addItem({
-      id: `build-${Date.now()}`,
-      name: `Custom Build (${selectedLayout}): ${parts.map((p) => p.name).join(" + ")}`,
-      price: totalPrice,
-      image: "⌨️",
-      category: "Build",
-      parts: parts.map((p) => p.id),
-    });
-    toast.success("Build adicionada ao carrinho!");
+    if (parts.length > 0) {
+      addItem({
+        id: `build-${Date.now()}`,
+        name: `Custom Build (${selectedLayout}): ${parts.map((p) => p.name).join(" + ")}`,
+        price: partsPrice,
+        image: "⌨️",
+        category: "Build",
+        parts: parts.map((p) => p.id),
+      });
+    }
+    // extras entram no carrinho como produtos normais da loja
+    selectedExtras.forEach((e) => addItem({ id: e.id, name: e.name, price: e.price, image: e.image, category: e.category }));
+    toast.success("Adicionado ao carrinho!");
   };
 
   const handleSaveBuild = () => {
@@ -211,9 +232,12 @@ const BuilderPage = () => {
       toast.error("Selecione pelo menos um componente.");
       return;
     }
-    const parts = [selectedSwitch, selectedKeycap, selectedPcb, selectedCase]
-      .filter(Boolean)
-      .map((p) => ({ id: p!.id, name: p!.name, category: p!.category, price: p!.price }));
+    const parts = [
+      ...[selectedSwitch, selectedKeycap, selectedPcb, selectedCase]
+        .filter(Boolean)
+        .map((p) => ({ id: p!.id, name: p!.name, category: p!.category as string, price: p!.price })),
+      ...selectedExtras.map((e) => ({ id: e.id, name: e.name, category: "extras", price: e.price })),
+    ];
     saveBuild.mutate(
       {
         userId: user.id,
@@ -316,9 +340,10 @@ const BuilderPage = () => {
               key={cat}
               category={cat}
               selectedItem={getSelectedForCategory(cat)}
+              summary={cat === "extras" ? extrasSummary : undefined}
               hasError={errorCategories.has(cat)}
               selectedColor={cat === "case" ? selectedCaseColor : undefined}
-              onClick={() => setOpenCategory(cat === "extras" ? null : cat)}
+              onClick={() => setOpenCategory(cat)}
             />
           ))}
 
@@ -394,8 +419,14 @@ const BuilderPage = () => {
       </div>
 
       {/* Product selection modal */}
+      <ExtrasModal
+        open={openCategory === "extras"}
+        selected={selectedExtras}
+        onToggle={toggleExtra}
+        onClose={() => setOpenCategory(null)}
+      />
       <ProductModal
-        category={openCategory as ComponentCategory | null}
+        category={openCategory === "extras" ? null : (openCategory as ComponentCategory | null)}
         selection={selection}
         selectedLayout={selectedLayout}
         selectedCaseColor={selectedCaseColorId}

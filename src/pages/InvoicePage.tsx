@@ -157,7 +157,7 @@ const InvoicePage = () => {
 
         <section className="border-t border-neutral-300 pt-4 mb-5">
           <h2 className="text-xs font-semibold uppercase tracking-widest text-neutral-500 mb-1">Pagamento</h2>
-          <p>Mercado Pago · Status: Pago{order.paidAt ? ` em ${dateTime(order.paidAt)}` : ""}</p>
+          <p>{order.paymentProvider === "mercadopago_pix" ? "Pix (via Mercado Pago)" : "Mercado Pago"} · Status: Pago{order.paidAt ? ` em ${dateTime(order.paidAt)}` : ""}</p>
           {order.paymentId && <p className="text-neutral-600">ID do pagamento: {order.paymentId}</p>}
         </section>
 
