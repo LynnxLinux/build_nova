@@ -127,11 +127,6 @@ const PixPanel = ({ orderId, demo, onConfirmed }: { orderId: string; demo: boole
       <p className="text-sm font-semibold text-foreground-strong flex items-center justify-center gap-2">
         <QrCode className="h-4 w-4 text-primary" /> Pague com Pix
       </p>
-      {demo && (
-        <p className="text-xs rounded-md bg-yellow-500/15 text-yellow-500 px-3 py-2">
-          MODO DEMONSTRAÇÃO: este Pix é simulado e não movimenta dinheiro. Use o botão abaixo para simular o pagamento.
-        </p>
-      )}
       {qrImage && (
         <img
           src={qrImage}
@@ -185,14 +180,19 @@ const OrderPage = () => {
   const { user, isLoading: authLoading } = useAuth();
   const { clearCart } = useCart();
 
-  const [tick, setTick] = useState(0);
   const [checking, setChecking] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const attempts = useRef(0);
   const maxAttempts = useRef(15);
 
-  const { data: order, isLoading } = useOrder(user ? id : undefined, tick);
+  const { data: order, isLoading, refetch } = useOrder(user ? id : undefined);
+
+  // refs para o intervalo usar sempre os valores mais recentes sem recriar o timer
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+  const statusRef = useRef<string | undefined>(undefined);
+  statusRef.current = order?.status;
 
   // Pergunta ao servidor (que consulta o Mercado Pago) se o pagamento foi aprovado
   const refreshStatus = useCallback(async () => {
@@ -201,7 +201,7 @@ const OrderPage = () => {
     try {
       const result = await checkPaymentStatus(id);
       setPaymentStatus(result.paymentStatus);
-      setTick((t) => t + 1);
+      await refetchRef.current(); // atualiza os dados em segundo plano, sem piscar a tela
     } catch (err) {
       console.error(err);
     } finally {
@@ -215,11 +215,14 @@ const OrderPage = () => {
     refreshStatus();
     const timer = setInterval(() => {
       attempts.current += 1;
-      if (attempts.current > maxAttempts.current) return clearInterval(timer);
+      // para de consultar quando o pedido deixa de estar pendente ou passa do limite
+      if (attempts.current > maxAttempts.current || (statusRef.current && statusRef.current !== "pending")) {
+        return clearInterval(timer);
+      }
       refreshStatus();
     }, 8000);
     return () => clearInterval(timer);
-  }, [user, id, refreshStatus]);
+  }, [user?.id, id, refreshStatus]);
 
   // Pagamento confirmado: esvazia o carrinho uma única vez (quando voltou do Mercado Pago)
   useEffect(() => {

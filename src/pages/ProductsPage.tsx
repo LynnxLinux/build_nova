@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Star, ShoppingCart } from "lucide-react";
-import { categories, brands } from "@/data/products";
+import { categories } from "@/data/products";
 import { useProducts } from "@/api/catalog";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
@@ -14,6 +14,12 @@ const ProductsPage = () => {
   const [category, setCategory] = useState("All");
   const [brand, setBrand] = useState("All");
   const [sort, setSort] = useState("popular");
+
+  // marcas montadas a partir dos produtos carregados (novos produtos entram sozinhos no filtro)
+  const brands = useMemo(
+    () => ["All", ...Array.from(new Set<string>(products.map((p) => p.brand))).sort((a: string, b: string) => a.localeCompare(b))],
+    [products],
+  );
 
   const filtered = useMemo(() => {
     let result = [...products];

@@ -302,9 +302,9 @@ export const rowToOrder = (r: OrderRow): Order => ({
   })),
 });
 
-export const useOrder = (orderId: string | undefined, refreshKey = 0) =>
+export const useOrder = (orderId: string | undefined) =>
   useQuery({
-    queryKey: ["order", orderId, refreshKey],
+    queryKey: ["order", orderId], // chave estável: atualizar não faz a página voltar a "carregando"
     enabled: !!orderId,
     queryFn: async (): Promise<Order | null> => {
       const { data, error } = await supabase

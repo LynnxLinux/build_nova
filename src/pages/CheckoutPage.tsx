@@ -347,7 +347,7 @@ const CheckoutPage = () => {
                     <QrCode className="h-4 w-4" /> Pix
                   </p>
                   <p className="text-muted-foreground">
-                    {pixDemo ? "Modo demonstração: Pix simulado, nenhum dinheiro é movimentado." : "QR Code ou copia e cola. Confirmação na hora, válido por 30 minutos."}
+                    {pixDemo ? "QR Code ou copia e cola." : "QR Code ou copia e cola. Confirmação na hora, válido por 30 minutos."}
                   </p>
                 </div>
               </label>
